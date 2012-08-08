@@ -191,6 +191,17 @@ class Mesh(object):
             # no point is close enough, return distances as they are
             return distances
 
+        proj = geo_utils.get_orthographic_projection(
+            *geo_utils.get_spherical_bounding_box(self.lons, self.lats)
+        )
+        mxx, myy = proj(self.lons, self.lats)
+        sxx, syy = proj(mesh.lons.take(idxs), mesh.lats.take(idxs))
+        from nhlib.geo._geodetic_speedups import point_to_polygon_distance
+        distances_2d = point_to_polygon_distance(mxx, myy, sxx, syy)
+        distances.put(idxs, distances_2d)
+
+
+
         # for all the points that are closer than the threshold we need
         # to recalculate the distance and set it to zero, if point falls
         # inside the convex hull polygon of the mesh. for doing that

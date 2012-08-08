@@ -42,7 +42,8 @@ utils_speedups = Extension('nhlib.geo._utils_speedups',
                            extra_compile_args=['-ggdb'])
 geodetic_speedups = Extension('nhlib.geo._geodetic_speedups',
                               sources=['speedups/geodeticmodule.c'],
-                              extra_compile_args=['-ggdb', '-Wall', '-O2'])
+                              extra_compile_args=['-ggdb', '-Wall', '-O2'],
+                              libraries=['geos_c'])
 
 include_dirs = [numpy.get_include()]
 

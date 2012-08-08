@@ -1,7 +1,9 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <numpy/npy_math.h>
+#include <geos_c.h>
 #include <math.h>
+#include <stdio.h>
 
 #define RAD(x) ((x) * M_PI / 180)
 #define EARTH_RADIUS 6371
@@ -318,6 +320,125 @@ geodetic_min_distance(
 }
 
 
+static PyObject *
+geodetic_point_to_polygon_distance(
+        PyObject *self,
+        PyObject *args,
+        PyObject *keywds)
+{
+    static char *kwlist[] = {"mxx", "myy", "sxx", "syy", NULL};
+
+    PyArrayObject *mxx, *myy, *sxx, *syy;
+
+    if (!PyArg_ParseTupleAndKeywords(args, keywds, "O!O!O!O!", kwlist,
+                &PyArray_Type, &mxx, &PyArray_Type, &myy,
+                &PyArray_Type, &sxx, &PyArray_Type, &syy))
+        return NULL;
+
+    PyArray_Descr *double_dtype = PyArray_DescrFromType(NPY_DOUBLE);
+
+    npy_uint32 flags;
+    NpyIter_IterNextFunc *iternext;
+    char **dataptrarray;
+
+    PyArrayObject *op_m[2];
+    npy_uint32 op_flags_m[2];
+    PyArray_Descr *op_dtypes_m[2] = {double_dtype, double_dtype};
+
+    flags = 0;
+    op_m[0] = mxx;
+    op_m[1] = myy;
+    op_flags_m[0] = op_flags_m[1] = NPY_ITER_READONLY;
+    NpyIter *iter = NpyIter_MultiNew(
+            2, op_m, flags, NPY_KEEPORDER, NPY_NO_CASTING,
+            op_flags_m, op_dtypes_m);
+    if (iter == NULL) {
+        Py_DECREF(double_dtype);
+        return NULL;
+    }
+    iternext = NpyIter_GetIterNext(iter, NULL);
+    dataptrarray = NpyIter_GetDataPtrArray(iter);
+
+    GEOSGeometry **points = malloc(
+            NpyIter_GetIterSize(iter) * sizeof(GEOSGeometry *));
+
+    GEOSCoordSequence *coord_seq_m;
+
+    double x, y;
+    unsigned int i = 0;
+
+    do
+    {
+        x = *(double *) dataptrarray[0];
+        y = *(double *) dataptrarray[1];
+
+        coord_seq_m = GEOSCoordSeq_create(1, 2);
+        GEOSCoordSeq_setX(coord_seq_m, 0, x);
+        GEOSCoordSeq_setY(coord_seq_m, 0, y);
+
+        points[i] = GEOSGeom_createPoint(coord_seq_m);
+
+        i++;
+    } while (iternext(iter));
+
+    GEOSGeometry *multipoint = GEOSGeom_createCollection(
+            GEOS_MULTIPOINT, points, i);
+    free(points);
+    GEOSGeometry *polygon = GEOSConvexHull(multipoint);
+    GEOSGeom_destroy(multipoint);
+
+    PyArrayObject *op_s[3];
+    npy_uint32 op_flags_s[3];
+    PyArray_Descr *op_dtypes_s[3] = {double_dtype, double_dtype, double_dtype};
+
+    flags = 0;
+    op_s[0] = sxx;
+    op_s[1] = syy;
+    op_s[2] = NULL;
+    op_flags_s[0] = op_flags_s[1] = NPY_ITER_READONLY;
+    op_flags_s[2] = NPY_ITER_WRITEONLY | NPY_ITER_ALLOCATE;
+    iter = NpyIter_MultiNew(
+            3, op_s, flags, NPY_KEEPORDER, NPY_NO_CASTING,
+            op_flags_s, op_dtypes_s);
+    Py_DECREF(double_dtype);
+
+    if (iter == NULL) {
+        GEOSGeom_destroy(polygon);
+        return NULL;
+    }
+
+    iternext = NpyIter_GetIterNext(iter, NULL);
+    dataptrarray = NpyIter_GetDataPtrArray(iter);
+
+    GEOSCoordSequence *coord_seq_s = GEOSCoordSeq_create(1, 2);
+    GEOSGeometry *point = GEOSGeom_createPoint(coord_seq_s);
+
+    do
+    {
+        double x = *(double *) dataptrarray[0];
+        double y = *(double *) dataptrarray[1];
+        double *dist = (double *) dataptrarray[2];
+
+        GEOSCoordSeq_setX(coord_seq_s, 0, x);
+        GEOSCoordSeq_setY(coord_seq_s, 0, y);
+
+        GEOSDistance(polygon, point, dist);
+    } while (iternext(iter));
+
+    GEOSGeom_destroy(polygon);
+    GEOSGeom_destroy(point);
+
+    PyArrayObject *result = NpyIter_GetOperandArray(iter)[2];
+    Py_INCREF(result);
+    if (NpyIter_Deallocate(iter) != NPY_SUCCEED) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    return (PyObject *) result;
+}
+
+
 static PyMethodDef GeodeticSpeedupsMethods[] = {
     {"geodetic_distance",
         (PyCFunction)geodetic_geodetic_distance,
@@ -331,13 +452,23 @@ static PyMethodDef GeodeticSpeedupsMethods[] = {
         (PyCFunction)geodetic_min_distance,
         METH_VARARGS | METH_KEYWORDS,
         "TBD"},
+    {"point_to_polygon_distance",
+        (PyCFunction)geodetic_point_to_polygon_distance,
+        METH_VARARGS | METH_KEYWORDS,
+        "TBD"},
 
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
+
+static void
+message_handler(const char *fmt, ...) {
+}
+
 
 PyMODINIT_FUNC
 init_geodetic_speedups(void)
 {
     (void) Py_InitModule("_geodetic_speedups", GeodeticSpeedupsMethods);
     import_array();
+    initGEOS(message_handler, message_handler);
 }
