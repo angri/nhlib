@@ -442,10 +442,36 @@ else:
     def _c_geodetic_distance(lons1, lats1, lons2, lats2):
         lons1, lats1, lons2, lats2 = _prepare_coords(lons1, lats1,
                                                      lons2, lats2)
-        return _geodetic_speedups.geodetic_distance(lons1, lats1, lons2, lats2)
+        return _geodetic_speedups.geodetic_distance(lons1, lats1, lons2, lats2,
+                                                    azimuth=False)
 
     speedups.register(geodetic_distance, _c_geodetic_distance)
     del _c_geodetic_distance
+
+
+    def _c_azimuth(lons1, lats1, lons2, lats2):
+        lons1, lats1, lons2, lats2 = _prepare_coords(lons1, lats1,
+                                                     lons2, lats2)
+        azimuth =_geodetic_speedups.geodetic_distance(
+            lons1, lats1, lons2, lats2, azimuth=True
+        )
+        return numpy.degrees(azimuth)
+
+    speedups.register(azimuth, _c_azimuth)
+    del _c_azimuth
+
+
+    def _c_distance_to_arc(alon, alat, aazimuth, plons, plats):
+        plons = numpy.array(numpy.radians(plons))
+        plats = numpy.array(numpy.radians(plats))
+        alon = numpy.array(numpy.radians(alon))
+        alat = numpy.array(numpy.radians(alat))
+        aazimuth = numpy.array(numpy.radians(aazimuth))
+        return _geodetic_speedups.distance_to_arc(alon, alat, aazimuth,
+                                                  plons, plats)
+
+    speedups.register(distance_to_arc, _c_distance_to_arc)
+    del _c_distance_to_arc
 
 
     def _c_min_geodetic_distance(mlons, mlats, slons, slats):
